@@ -8,7 +8,7 @@ from enum import Enum
 import json
 import os
 import time
-from typing import List, Optional
+from typing import Literal, Optional, List
 
 import pymupdf as fitz
 from dotenv import load_dotenv
