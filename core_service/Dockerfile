@@ -2,9 +2,12 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir fastapi uvicorn
+COPY requirements.txt .
 
-COPY main.py .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY core_service/main.py .
+COPY preprocessor.py .
 
 EXPOSE 8001
 
