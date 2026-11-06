@@ -1,226 +1,111 @@
+import os
+import uuid
+import shutil
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
+from sqlalchemy.orm import Session
+from shared.database import get_db
+from shared.models import Document, Quiz, Question
 
-from uuid import uuid4
-from datetime import datetime, timezone
-from typing import Any
-from io import BytesIO
+app = FastAPI(title="Quiz Core Service")
+UPLOAD_DIR = "/app/storage/uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-import pymupdf as fitz
-from docx import Document
-from pptx import Presentation
+# Giới hạn dung lượng file: 10MB
+MAX_FILE_SIZE = 10 * 1024 * 1024 
 
-from fastapi import (
-    FastAPI,
-    HTTPException,
-    UploadFile,
-    File,
-    Form,
-)
-from pydantic import BaseModel, Field
-
-from preprocessor import extract_document
-
-
-app = FastAPI(
-    title="Quiz Generator - Core Service",
-    description="Quản lý tài liệu và kết quả trắc nghiệm",
-    version="1.0.0",
-)
-
-
-# Lưu trữ dữ liệu tạm thời trong RAM
-documents: dict[str, dict[str, Any]] = {}
-quizzes: dict[str, dict[str, Any]] = {}
-
-
-# =========================
-# PYDANTIC MODELS
-# =========================
-
-class DocumentCreate(BaseModel):
-    filename: str = Field(min_length=1, max_length=255)
-    page_count: int = Field(ge=1)
-    character_count: int = Field(ge=0)
-    content: str = Field(min_length=1)
-
-
-class QuizCreate(BaseModel):
-    document_id: str
-    questions: list[dict[str, Any]]
-
-
-# =========================
-# HELPER FUNCTIONS
-# =========================
-
-def get_page_count(file_bytes: bytes, filename: str) -> int:
-    extension = filename.lower().split(".")[-1]
-
-    if extension == "pdf":
-        with fitz.open(
-            stream=file_bytes,
-            filetype="pdf"
-        ) as doc:
-            return len(doc)
-
-    if extension == "docx":
-        doc = Document(BytesIO(file_bytes))
-        return max(1, len(doc.paragraphs) // 30 + 1)
-
-    if extension == "pptx":
-        presentation = Presentation(BytesIO(file_bytes))
-        return len(presentation.slides)
-
-    return 1
-
-
-# =========================
-# HEALTH CHECK
-# =========================
-
-@app.get("/health")
-def health():
-    return {
-        "status": "ok",
-        "service": "core-service"
-    }
-
-
-# =========================
-# DOCUMENT APIs
-# =========================
-
-# Tạo thông tin tài liệu từ dữ liệu JSON
-@app.post("/api/v1/documents", status_code=201)
-def create_document(data: DocumentCreate):
-    document_id = str(uuid4())
-
-    document = {
-        "document_id": document_id,
-        **data.model_dump(),
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-
-    documents[document_id] = document
-
-    return document
-
-
-# Upload và trích xuất nội dung tài liệu
-@app.post("/api/v1/documents/upload", status_code=201)
-async def upload_document(
-    file: UploadFile = File(...),
-    is_4up_slides: bool = Form(False)
-):
-    filename = file.filename or ""
-
-    allowed_extensions = (".pdf", ".docx", ".pptx")
-
-    if not filename.lower().endswith(allowed_extensions):
-        raise HTTPException(
-            status_code=400,
-            detail="Only PDF, DOCX and PPTX files are supported"
-        )
-
-    file_bytes = await file.read()
-
-    if not file_bytes:
-        raise HTTPException(
-            status_code=400,
-            detail="Uploaded file is empty"
-        )
-
+@app.post("/api/v1/documents/upload")
+def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    file_path = None
     try:
-        # Trích xuất văn bản từ tài liệu
-        content = extract_document(
-            file_bytes=file_bytes,
-            filename=filename,
-            is_4up_slides=is_4up_slides
+        file_ext = os.path.splitext(file.filename)[1].lower()
+        if file_ext not in [".pdf", ".docx", ".pptx"]:
+            raise HTTPException(status_code=400, detail="Chỉ hỗ trợ .pdf, .docx, .pptx")
+            
+        file.file.seek(0, 2)
+        file_size = file.file.tell()
+        file.file.seek(0)
+        
+        # Kiểm tra dung lượng
+        if file_size > MAX_FILE_SIZE:
+            raise HTTPException(status_code=413, detail="Dung lượng file vượt quá giới hạn 10MB")
+
+        file_id = uuid.uuid4()
+        saved_filename = f"{file_id}{file_ext}"
+        file_path = os.path.join(UPLOAD_DIR, saved_filename)
+
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        new_doc = Document(
+            id=file_id,
+            filename=file.filename,
+            file_type=file_ext,
+            file_path=file_path,
+            file_size=file_size,
+            character_count=0 
         )
-
-        if not content or not content.strip():
-            raise HTTPException(
-                status_code=400,
-                detail="No text could be extracted from the document"
-            )
-
-        # Đếm số trang hoặc slide
-        page_count = get_page_count(
-            file_bytes,
-            filename
-        )
-
-        # Tạo dữ liệu tài liệu
-        data = DocumentCreate(
-            filename=filename,
-            page_count=page_count,
-            character_count=len(content),
-            content=content
-        )
-
-        # Lưu tài liệu
-        return create_document(data)
-
+        db.add(new_doc)
+        db.commit()
+        db.refresh(new_doc)
+        
+        return {"message": "Upload thành công", "document_id": str(new_doc.id)}
+        
     except HTTPException:
+        if file_path and os.path.exists(file_path):
+            os.remove(file_path)
         raise
+    except Exception as e:
+        db.rollback()
+        if file_path and os.path.exists(file_path):
+            os.remove(file_path)
+        raise HTTPException(status_code=500, detail=f"Lỗi hệ thống khi upload: {str(e)}")
 
-    except Exception as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Document processing failed: {str(exc)}"
-        )
-
-
-# Lấy thông tin tài liệu
 @app.get("/api/v1/documents/{document_id}")
-def get_document(document_id: str):
-    document = documents.get(document_id)
-
-    if document is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Document not found"
-        )
-
-    return document
-
-
-# =========================
-# QUIZ APIs
-# =========================
-
-# Tạo quiz
-@app.post("/api/v1/quizzes", status_code=201)
-def create_quiz(data: QuizCreate):
-    if data.document_id not in documents:
-        raise HTTPException(
-            status_code=404,
-            detail="Document not found"
-        )
-
-    quiz_id = str(uuid4())
-
-    quiz = {
-        "quiz_id": quiz_id,
-        "document_id": data.document_id,
-        "questions": data.questions,
-        "question_count": len(data.questions),
-        "created_at": datetime.now(timezone.utc).isoformat(),
+def get_document(document_id: str, db: Session = Depends(get_db)):
+    try:
+        doc_uuid = uuid.UUID(document_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="UUID không hợp lệ")
+        
+    doc = db.query(Document).filter(Document.id == doc_uuid).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài liệu")
+        
+    return {
+        "document_id": str(doc.id),
+        "filename": doc.filename,
+        "file_type": doc.file_type,
+        "file_size_bytes": doc.file_size
     }
 
-    quizzes[quiz_id] = quiz
-
-    return quiz
-
-
-# Lấy kết quả quiz
 @app.get("/api/v1/quizzes/{quiz_id}")
-def get_quiz(quiz_id: str):
-    quiz = quizzes.get(quiz_id)
+def get_quiz_result(quiz_id: str, db: Session = Depends(get_db)):
+    try:
+        quiz_uuid = uuid.UUID(quiz_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="UUID không hợp lệ")
 
-    if quiz is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Quiz not found"
-        )
+    quiz = db.query(Quiz).filter(Quiz.id == quiz_uuid).first()
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Không tìm thấy Quiz")
 
-    return quiz
+    questions = db.query(Question).filter(Question.quiz_id == quiz.id).order_by(Question.question_order).all()
+
+    questions_list = []
+    for q in questions:
+        questions_list.append({
+            "id": q.question_order,
+            "question": q.question_text,
+            "options": [q.option_a, q.option_b, q.option_c, q.option_d],
+            "correct_answer": q.correct_answer,
+            "explanation": q.explanation
+        })
+
+    return {
+        "quiz_id": str(quiz.id),
+        "job_id": str(quiz.job_id),
+        "document_id": str(quiz.document_id),
+        "topic_summary": quiz.topic_summary,
+        "question_count": quiz.question_count,
+        "questions": questions_list
+    }

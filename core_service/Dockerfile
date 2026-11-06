@@ -8,6 +8,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY core_service/main.py .
 COPY preprocessor.py .
+COPY shared/ shared/
+COPY alembic.ini .
+COPY alembic/ alembic/
 
 EXPOSE 8001
 

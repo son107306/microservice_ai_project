@@ -1,4 +1,22 @@
 services:
+  postgres:
+    image: postgres:16
+    container_name: quiz-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-quiz_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-quiz_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-quiz_user} -d ${POSTGRES_DB:-quiz_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   core-service:
     build:
       context: .
@@ -6,8 +24,31 @@ services:
     container_name: quiz-core-service
     ports:
       - "8001:8001"
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-quiz_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-quiz_db}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - shared_uploads:/app/storage/uploads
     restart: unless-stopped
 
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: quiz-rabbitmq
+    ports:
+      - "5672:5672" 
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    
   job-service:
     build:
       context: .
@@ -17,8 +58,39 @@ services:
       - "8002:8002"
     environment:
       CORE_SERVICE_URL: http://core-service:8001
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-quiz_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-quiz_db}
+      CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672//
     env_file:
       - .env
     depends_on:
-      - core-service
+      postgres:
+        condition: service_healthy
+      core-service:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
     restart: unless-stopped
+
+  worker-service:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    container_name: quiz-worker-service
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-quiz_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-quiz_db}
+      CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672//
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - shared_uploads:/app/storage/uploads
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  shared_uploads:
