@@ -1,378 +1,276 @@
 # HỆ THỐNG SINH CÂU HỎI TRẮC NGHIỆM TỪ TÀI LIỆU THEO KIẾN TRÚC MICROSERVICES
 
+> **Project 1 — Đại học Bách khoa Hà Nội**\
+> **Trạng thái tài liệu:** Cập nhật kết quả triển khai và kiểm chứng đến hết Tuần 5 (07/11–13/11/2026). Đây là trạng thái kỹ thuật đã ghi nhận, **chưa phải tuyên bố hoàn tất toàn bộ đồ án**.
+
 ## 1. Thông tin học phần
 
 - **Sinh viên thực hiện:** Nguyễn Văn Sơn
 - **MSSV:** `202416339`
 - **Lớp:** `IT1-03-K69` (Hệ Cử nhân)
 - **Giảng viên hướng dẫn:** Thầy Nguyễn Mạnh Tuấn
-- **Bộ môn:** Project 1 – Trường CNTT&TT, Đại học Bách khoa Hà Nội
+- **Đơn vị:** Trường Công nghệ Thông tin và Truyền thông, Đại học Bách khoa Hà Nội
 - **Đề tài:** Thiết kế và xây dựng hệ thống sinh câu hỏi trắc nghiệm từ tài liệu theo kiến trúc Microservices, hỗ trợ xử lý tác vụ AI bất đồng bộ và đánh giá khả năng chịu tải.
-- **GitHub:** https://github.com/son107306/microservice_ai_project
-
----
+- **Kho mã nguồn:** https://github.com/son107306/microservice_ai_project
 
 ## 2. Tổng quan dự án
 
-Dự án hướng tới xây dựng một hệ thống tự động sinh câu hỏi trắc nghiệm từ tài liệu học tập bằng cách ứng dụng các mô hình ngôn ngữ lớn (LLM).
+Dự án xây dựng hệ thống tạo câu hỏi trắc nghiệm từ tài liệu học tập. Các tác vụ gọi LLM có thể kéo dài nên hệ thống **không chờ xử lý AI ngay trong HTTP request tạo Job**. Job Service tiếp nhận yêu cầu, trả mã Job; RabbitMQ phân phối tác vụ cho Celery Worker; kết quả được lưu trong PostgreSQL và truy xuất thông qua Core Service.
 
-Hệ thống được phát triển theo kiến trúc Microservices, phân tách các thành phần tiếp nhận yêu cầu, quản lý dữ liệu và xử lý AI thành những dịch vụ độc lập.
+**Phạm vi MVP theo đề cương:** tài liệu PDF có lớp văn bản, không bao gồm OCR cho PDF scan. Bộ tiền xử lý đã có hỗ trợ DOCX và PPTX ở mức triển khai đã ghi nhận, nhưng kiểm thử E2E Tuần 5 dưới đây được thực hiện bằng **một PDF 7 trang**. Chưa có bằng chứng kiểm thử tải đồng thời 10/20/40 Job hoặc triển khai giao diện React hoàn chỉnh trong Tuần 5.
 
-Thay vì xử lý toàn bộ yêu cầu trong một HTTP request đồng bộ, hệ thống sử dụng RabbitMQ và Celery để đưa các tác vụ sinh câu hỏi vào hàng đợi, cho phép Worker xử lý bất đồng bộ.
-
-Kết quả được lưu trữ trong PostgreSQL, hỗ trợ truy xuất trạng thái tác vụ và nội dung bộ câu hỏi đã sinh.
-
-### Công nghệ sử dụng
+### Công nghệ
 
 | Thành phần | Công nghệ |
 |---|---|
-| Ngôn ngữ | Python 3.13 |
-| API Framework | FastAPI |
-| ORM | SQLAlchemy |
-| Database | PostgreSQL |
-| Database Migration | Alembic |
-| Message Broker | RabbitMQ |
-| Task Queue | Celery |
-| AI Integration | Gemini, DeepSeek, OpenAI, Mock |
-| Document Processing | PyMuPDF, python-docx, python-pptx |
-| Containerization | Docker, Docker Compose |
-| Validation | Pydantic |
-
----
+| Ngôn ngữ/API | Python, FastAPI |
+| Xử lý bất đồng bộ | Celery, RabbitMQ |
+| Cơ sở dữ liệu | PostgreSQL, SQLAlchemy ORM |
+| Quản lý schema | Alembic |
+| Trích xuất tài liệu | PyMuPDF (`fitz`), `python-docx`, `python-pptx` |
+| Chia văn bản | Chunking có overlap |
+| Tích hợp AI | LLM Adapter: Gemini, DeepSeek, OpenAI, Mock |
+| Xác thực dữ liệu | Pydantic |
+| Triển khai dịch vụ | Docker, Docker Compose |
+| Định hướng giao diện/đo tải | React, Locust (không tuyên bố đã hoàn tất trong Tuần 5) |
 
 ## 3. Tiến độ phát triển dự án
 
-### Tuần 2 (17/10/2026 – 23/10/2026): Xây dựng phiên bản Baseline
+### Tuần 2 (16/10/2026 – 23/10/2026): Đề cương và Baseline
 
-- Xây dựng ứng dụng FastAPI xử lý yêu cầu sinh câu hỏi từ tài liệu PDF.
-- Tích hợp Google Gemini để sinh câu hỏi trắc nghiệm.
-- Xây dựng cấu trúc dữ liệu đầu ra bằng Pydantic.
-- Đo lường thời gian trích xuất văn bản, thời gian phản hồi LLM và tổng thời gian xử lý.
-- Xác định vấn đề về độ trễ khi xử lý đồng bộ.
+- Hoàn thiện phạm vi MVP, lựa chọn tech stack và kiến trúc phân tách Core Service, Job Service, Worker.
+- Thiết kế luồng đồng bộ PDF → trích xuất văn bản → LLM Adapter → xác thực JSON Quiz.
+- Xác định schema câu hỏi và các chỉ số `extraction_time_ms`, `llm_latency_ms`, `total_time_ms`.
+- Báo cáo Tuần 2 ghi nhận **đang hoàn thiện chạy thực nghiệm Baseline**; không suy diễn rằng toàn bộ phép đo đã hoàn tất ngay tại thời điểm nộp báo cáo đó.
 
 ### Tuần 3 (24/10/2026 – 30/10/2026): Microservices và Docker Compose
 
-- Phân tách hệ thống thành `job_service` và `core_service`.
-- Xây dựng RESTful API để tiếp nhận yêu cầu và truy xuất kết quả.
-- Container hóa các dịch vụ bằng Docker.
-- Mở rộng khả năng tiền xử lý PDF, DOCX và PPTX.
-- Xây dựng Multi-LLM Adapter hỗ trợ Gemini, DeepSeek, OpenAI và Mock.
-- Xử lý tài liệu PDF dạng handout 4 slide/trang, Unicode và công thức toán học.
+- Phân tách Job Service (cổng `8002`) và Core Service (cổng `8001`); khởi chạy thử bằng Docker Compose.
+- Thiết lập API tạo Job và truy vấn trạng thái qua HTTP Polling.
+- Mở rộng tiền xử lý DOCX, PPTX; bổ sung xử lý PDF handout 4 slide/trang khi cấu hình thích hợp và chuẩn hóa Unicode.
+- Xây dựng tầng Multi-LLM Adapter có các provider Gemini, DeepSeek, OpenAI, Mock.
+- Ở mốc Tuần 3, việc lưu Job bền vững và ghép RabbitMQ/Celery **chưa hoàn thành**, được triển khai ở các tuần sau.
 
-### Tuần 4 (31/10/2026 – 06/11/2026): Xử lý bất đồng bộ và quản lý dữ liệu tập trung
+### Tuần 4 (31/10/2026 – 06/11/2026): Bất đồng bộ và dữ liệu tập trung
 
-**Mục tiêu:** Chuyển đổi hệ thống từ kiến trúc Microservices mới dừng ở mức tiếp nhận và phản hồi trạng thái sang hệ thống có khả năng xử lý tác vụ AI bất đồng bộ thông qua Message Broker và Worker độc lập.
+- Tích hợp RabbitMQ và Celery Worker; triển khai luồng tạo Job → hàng đợi → Worker → PostgreSQL → Core API.
+- Tạo các model `Document`, `Job`, `Quiz`, `Question` với SQLAlchemy ORM; sử dụng Alembic quản lý schema.
+- Bổ sung xử lý transaction rollback, ACK và các biện pháp hạn chế ghi trùng ở mức đã triển khai.
+- **Cập nhật trạng thái mới nhất (Tuần 5):** Alembic `current` đã ghi nhận `98e0bbb3ce26 (head)`; bảng dữ liệu và các ràng buộc đã được kiểm tra. Không cần chạy lại migration chỉ để làm theo README.
+- Báo cáo Tuần 4 từng nêu “retry tối đa 3 lần” cho Worker; cấu hình thực tế cập nhật ở Tuần 5 là **Celery `max_retries=0`**, còn retry HTTP Gemini được SDK đảm nhiệm (xem mục 8).
 
-#### 3.1. Xây dựng cơ chế xử lý tác vụ bất đồng bộ
+### Tuần 5 (07/11/2026 – 13/11/2026): PDF nhiều trang, Chunking và Gemini E2E
 
-- Tích hợp RabbitMQ làm Message Broker để tiếp nhận và phân phối các tác vụ sinh câu hỏi.
-- Tích hợp Celery để quản lý và thực thi các tác vụ nền.
-- Xây dựng `worker` độc lập với các API Service.
-- Job Service tiếp nhận yêu cầu, tạo `job_id` và gửi tác vụ vào hàng đợi.
-- Worker tiếp nhận tác vụ, thực hiện pipeline xử lý tài liệu và sinh câu hỏi bằng LLM.
-- Sau khi hoàn thành, kết quả được lưu trữ để Core Service cung cấp cho người dùng.
+- Xử lý PDF nhiều trang bằng PyMuPDF, làm sạch Unicode, đánh dấu trang, kiểm tra nội dung rỗng.
+- Hoàn thiện `chunking.py`: `chunk_size = 5000` ký tự và `overlap = 300` ký tự; PDF thử nghiệm được tách thành **2 chunks**.
+- Chuẩn hóa `QuizQuestion`/`QuizPayload` để kiểm tra bốn đáp án A–D, `correct_answer` và `explanation`.
+- Đồng bộ giao diện trả kết quả LLM Adapter dạng `dict` với Worker; build và chạy Worker thành công.
+- Chạy E2E thành công với **Mock** và **Gemini thật (`gemini-3.5-flash`)**; lưu và truy xuất Quiz/Questions qua Core API.
+- Quan sát Gemini gặp HTTP **504** ở một lần gọi, SDK retry rồi thành công; không nhầm thành lỗi HTTP 503 ở phép thử này.
+- Đối chiếu 5 câu hỏi sinh ra với PDF gốc; xác minh lại Job và Quiz qua API sau khi container khởi động lại.
 
-**Luồng xử lý tổng quát:**
+## 4. Kiến trúc và cấu trúc mã nguồn
+
+### Luồng xử lý bất đồng bộ
 
 ```text
-                  CLIENT
-                     |
-                     v
-              +--------------+
-              |  Job Service |
-              |   Port 8002  |
-              +--------------+
-                     |
-                     | Create Job
-                     v
-              +--------------+
-              |   RabbitMQ   |
-              | Message Queue|
-              +--------------+
-                     |
-                     | Consume Task
-                     v
-              +--------------+
-              | Celery Worker|
-              +--------------+
-                     |
-          +----------+----------+
-          |          |          |
-          v          v          v
-      Extract      LLM       Validate
-      Document   Generation   Quiz Data
-          |          |          |
-          +----------+----------+
-                     |
-                     v
-              +--------------+
-              |  PostgreSQL  |
-              | Persist Data |
-              +--------------+
-                     |
-                     v
-              +--------------+
-              | Core Service |
-              |   Port 8001  |
-              +--------------+
-                     |
-                     v
-                 CLIENT
+Người dùng / Client
+    |  (upload tài liệu, tạo job, polling trạng thái)
+    +--> Core Service :8001 -- lưu/truy xuất Document, Quiz
+    |
+    +--> Job Service :8002 -- tạo Job ID / trạng thái
+                 |
+                 v
+              RabbitMQ
+                 |
+                 v
+          Celery Worker
+            | Extract + Clean PDF
+            | Chunking (5000, overlap 300)
+            | LLM Adapter (Mock/Gemini/...)
+            | Validate + Aggregate Questions
+                 |
+                 v
+             PostgreSQL
+          documents / jobs / quizzes / questions
+                 |
+                 v
+          Core Service :8001 -- GET Quiz
 ```
 
-#### 3.2. Tích hợp PostgreSQL và SQLAlchemy ORM
-
-Xây dựng tầng quản lý dữ liệu tập trung bằng PostgreSQL và SQLAlchemy.
-
-Thiết kế các thực thể dữ liệu chính:
-
-| Model | Chức năng |
-|---|---|
-| `Document` | Lưu thông tin tài liệu được tải lên |
-| `Job` | Quản lý trạng thái và thông tin tác vụ sinh Quiz |
-| `Quiz` | Lưu thông tin bộ câu hỏi được sinh ra |
-| `Question` | Lưu từng câu hỏi, các phương án và đáp án đúng |
-
-Các quan hệ dữ liệu:
-
-- Một `Document` có thể được sử dụng trong nhiều `Job`.
-- Một `Document` có thể gắn với nhiều `Quiz`.
-- Một `Job` có thể liên kết với một `Quiz` sau khi hoàn thành.
-- Một `Quiz` chứa nhiều `Question`.
-- Mỗi `Quiz` có mã định danh riêng và quan hệ liên kết với `Job`.
-
-Sử dụng UUID làm khóa định danh cho các thực thể chính, hỗ trợ quản lý dữ liệu giữa các dịch vụ độc lập.
-
-#### 3.3. Quản lý phiên bản cơ sở dữ liệu bằng Alembic
-
-- Khởi tạo Alembic để quản lý schema PostgreSQL.
-- Cấu hình `env.py` kết nối metadata từ SQLAlchemy Models.
-- Tạo migration `create_initial_tables`.
-- Xây dựng các bảng dữ liệu ban đầu gồm `documents`, `jobs`, `quizzes` và `questions`.
-- Khai báo khóa chính, khóa ngoại, kiểu dữ liệu và các ràng buộc cần thiết.
-
-Migration giúp quản lý thay đổi cấu trúc cơ sở dữ liệu có kiểm soát, thuận tiện cho việc nâng cấp và bảo trì hệ thống.
-
-#### 3.4. Nâng cao độ tin cậy của Worker
-
-Triển khai các cơ chế nhằm hạn chế lỗi khi xử lý tác vụ bất đồng bộ:
-
-- **Retry:** Cho phép thử lại tối đa 3 lần khi tác vụ thất bại.
-- **Exponential Backoff:** Tăng khoảng thời gian chờ giữa các lần thử lại.
-- **Idempotency:** Hạn chế việc thực thi hoặc ghi nhận kết quả trùng lặp.
-- **Safe ACK:** Kiểm soát việc xác nhận thông điệp sau quá trình xử lý.
-- **Transaction Rollback:** Hoàn tác các thay đổi dữ liệu khi xảy ra lỗi.
-- **Upload Cleanup:** Quản lý và dọn dẹp tệp tải lên sau khi xử lý theo vòng đời tác vụ.
-- **Character Count:** Lưu thông tin số lượng ký tự trích xuất từ tài liệu.
-
-#### 3.5. Hoàn thiện luồng API
-
-- Job Service tiếp nhận yêu cầu tạo Quiz và trả về `job_id`.
-- API tra cứu trạng thái Job hỗ trợ các trạng thái `queued`, `processing`, `completed` và `failed`.
-- Khi xử lý thành công, Job trả về `quiz_id`.
-- Core Service cung cấp API truy xuất nội dung bộ câu hỏi từ cơ sở dữ liệu.
-
----
-
-## 4. Kiến trúc và cấu trúc thư mục dự án
+### Những thư mục/tệp trọng tâm đã được ghi nhận
 
 ```text
 microservice-project/
-│
-├── .venv/
-├── .env
-├── .gitignore
+├── core_service/         # API tài liệu và Quiz
+├── job_service/          # Tạo Job, đọc trạng thái
+├── worker/               # Celery task: worker.tasks.process_quiz_generation
+├── shared/               # Models và kết nối PostgreSQL
+├── alembic/              # Migration/schema
+├── test_files/           # Tài liệu thử nghiệm nội bộ
+├── preprocessor.py       # Trích xuất, chuẩn hóa tài liệu
+├── chunking.py           # Chia đoạn có overlap
+├── llm_adapter.py        # Gemini / DeepSeek / OpenAI / Mock
+├── baseline_app.py       # Phiên bản Baseline (lịch sử)
 ├── docker-compose.yml
 ├── requirements.txt
-├── README.md
-│
-├── alembic/
-│   ├── versions/
-│   │   └── create_initial_tables.py
-│   ├── env.py
-│   ├── README
-│   └── script.py.mako
-│
-├── alembic.ini
-│
-├── core_service/
-│   ├── __init__.py
-│   ├── main.py
-│   └── Dockerfile
-│
-├── job_service/
-│   ├── __init__.py
-│   ├── main.py
-│   └── Dockerfile
-│
-├── shared/
-│   ├── __init__.py
-│   ├── database.py
-│   ├── models.py
-│   └── database_connection.py
-│
-├── worker/
-│   ├── Dockerfile
-│   └── tasks.py
-│
-├── test_files/
-├── test_outputs/
-│
-├── baseline_app.py
-├── preprocessor.py
-└── llm_adapter.py
+└── README.md
 ```
 
-**Vai trò các thành phần:**
+Sơ đồ trên tập trung vào các tệp được nhắc trong báo cáo/bàn giao, **không thay thế việc kiểm tra cây thư mục Git thực tế**. Tệp `.env`, `.venv`, dữ liệu kiểm thử và bản dump database không được đưa vào GitHub.
 
-- `core_service/`: Quản lý tài liệu, Quiz và API truy xuất kết quả.
-- `job_service/`: Tiếp nhận yêu cầu, tạo Job và cung cấp API theo dõi trạng thái.
-- `worker/`: Thực thi các tác vụ nền bằng Celery.
-- `shared/`: Chia sẻ cấu hình database và SQLAlchemy Models.
-- `alembic/`: Quản lý lịch sử migration của cơ sở dữ liệu.
-- `docker-compose.yml`: Điều phối các thành phần trong môi trường Docker.
-- `baseline_app.py`: Lưu phiên bản Baseline đồng bộ từ Tuần 2.
+## 5. API đã sử dụng
 
----
+| Service | Method | Endpoint | Chức năng |
+|---|---|---|---|
+| Core (`8001`) | POST | `/api/v1/documents/upload` | Tải tài liệu |
+| Core (`8001`) | GET | `/api/v1/documents/{document_id}` | Truy xuất thông tin Document |
+| Core (`8001`) | GET | `/api/v1/quizzes/{quiz_id}` | Truy xuất bộ câu hỏi |
+| Job (`8002`) | POST | `/api/v1/jobs` | Tạo Job và nhận mã Job |
+| Job (`8002`) | GET | `/api/v1/jobs/{job_id}` | Theo dõi `queued` / `processing` / `completed` / `failed` |
 
-## 5. Đặc tả API
+Swagger: `http://localhost:8001/docs` và `http://localhost:8002/docs`.
 
-### 5.1. Job Service (Port 8002)
+> **Lưu ý:** Một số endpoint `/health` có thể trả HTTP 404 trong trạng thái bàn giao Tuần 5. Không dùng kết quả 404 tại `/health` làm bằng chứng duy nhất kết luận container hoặc service ngừng hoạt động; nên đối chiếu với `docker compose ps -a`, `/docs` và endpoint thực tế.
 
-| Method | Endpoint | Chức năng |
-|---|---|---|
-| POST | `/api/v1/jobs` | Tạo yêu cầu sinh Quiz |
-| GET | `/api/v1/jobs/{job_id}` | Tra cứu trạng thái Job |
-| GET | `/health` | Kiểm tra tình trạng dịch vụ |
+## 6. Hướng dẫn chạy và kiểm tra (Windows PowerShell)
 
-Quy trình trạng thái:
+### Yêu cầu
 
-```text
-queued → processing → completed
-                   ↘ failed
-```
+- Windows, PowerShell, Docker Desktop có Docker Compose.
+- Python virtual environment (`.venv`) nếu cần thực thi lệnh Python ngoài container.
+- Cấu hình môi trường hiện có phải hợp lệ. **Không công khai API key, mật khẩu, `.env` hoặc chuỗi kết nối thực.**
 
-Khi hoàn thành, kết quả xử lý được liên kết với `quiz_id`.
-
-### 5.2. Core Service (Port 8001)
-
-| Method | Endpoint | Chức năng |
-|---|---|---|
-| GET | `/api/v1/quizzes/{quiz_id}` | Truy xuất bộ câu hỏi |
-| GET | `/health` | Kiểm tra tình trạng dịch vụ |
-
----
-
-## 6. Hướng dẫn cài đặt và chạy dự án
-
-### 6.1. Yêu cầu môi trường
-
-- Python 3.13
-- Docker Desktop
-- Docker Compose
-- Git
-
-### 6.2. Cấu hình môi trường
-
-Tạo file `.env` tại thư mục gốc và khai báo các biến môi trường cần thiết:
-
-```env
-GEMINI_API_KEY=your_api_key
-GEMINI_MODEL=gemini-3.8-flash
-
-DATABASE_URL=postgresql+psycopg://user:password@postgres:5432/quiz_db
-
-CELERY_BROKER_URL=amqp://guest:guest@rabbitmq:5672//
-```
-
-Lưu ý: Các giá trị username, password, database và tên service cần đồng bộ với cấu hình thực tế trong `docker-compose.yml`. Không đưa API Key hoặc mật khẩu thật lên GitHub.
-
-### 6.3. Khởi chạy bằng Docker Compose
+### Chạy hệ thống đang có
 
 ```powershell
-# Khởi chạy toàn bộ hệ thống
-docker compose up -d --build
+# Từ thư mục dự án thực tế của bạn
+cd C:\Users\ADMIN\microservice-project
 
-# Kiểm tra trạng thái các container
-docker compose ps
+# Khởi động lại các service theo cấu hình hiện tại, không ép build lại
+docker compose up -d
 
-# Theo dõi log của Worker
-docker compose logs -f worker-service
+# Xem các container, bao gồm container đã dừng
+docker compose ps -a
 
-# Theo dõi log toàn hệ thống
-docker compose logs -f
+# Nếu cần xem log Worker (không chỉnh sửa dữ liệu)
+docker compose logs --tail=50 worker-service
 ```
 
-### 6.4. Chạy trực tiếp bằng Python
+Không dùng `docker compose down -v` để khắc phục lỗi thông thường vì có thể xóa volume chứa dữ liệu. Không tự đổi số worker, migration hoặc các giá trị trong `.env` để chạy lại phép thử cũ.
+
+### Kiểm tra lại Job/Quiz đã có — không phát sinh tác vụ AI mới
+
+Các mã dưới đây là **ID của dữ liệu kiểm thử đã được xác nhận**, không phải ID cố định cho mọi lần triển khai.
 
 ```powershell
-# Kích hoạt môi trường ảo
-.\.venv\Scripts\activate
+$jobId = "59856f10-1cc1-4c72-a6ac-d6595085c7dc"
+$quizId = "8060c874-9543-4755-aba8-7afb238fa994"
 
-# Cài đặt thư viện
-python -m pip install -r requirements.txt
+Invoke-RestMethod "http://localhost:8002/api/v1/jobs/$jobId" | Format-List
 
-# Chạy Core Service
-python -m uvicorn core_service.main:app --reload --port 8001
+$quiz = Invoke-RestMethod "http://localhost:8001/api/v1/quizzes/$quizId"
+$quiz | Select-Object quiz_id, job_id, question_count, `
+    @{Name="actual_questions";Expression={@($_.questions).Count}} | Format-List
 
-# Chạy Job Service
-python -m uvicorn job_service.main:app --reload --port 8002
+# Lưu JSON để xem UTF-8 trong VS Code (tùy chọn)
+curl.exe -sS "http://localhost:8001/api/v1/quizzes/$quizId" -o gemini_quiz.json
+code gemini_quiz.json
 ```
 
-RabbitMQ và PostgreSQL cần được khởi chạy và cấu hình kết nối trước khi kiểm thử toàn bộ pipeline bất đồng bộ.
+Nếu PowerShell hiển thị dấu tiếng Việt sai nhưng JSON mở trong VS Code đúng UTF-8, cần phân biệt **lỗi hiển thị terminal** với **lỗi dữ liệu API**.
 
-### 6.5. Quản lý Database bằng Alembic
+### Database/Alembic
 
-```powershell
-# Kiểm tra phiên bản migration hiện tại
-alembic current
+Phiên bản đã ghi nhận: `98e0bbb3ce26 (head)`. Chỉ kiểm tra trạng thái khi cần, **không tự ý `alembic upgrade head` hoặc chỉnh sửa schema** nếu không có migration mới được chủ động duyệt.
 
-# Xem lịch sử migration
-alembic history
+## 7. Kết quả Baseline — tham chiếu từ README trước Tuần 5
 
-# Áp dụng migration mới nhất
-alembic upgrade head
-```
+README cũ ghi nhận số liệu thử nghiệm Baseline với tài liệu *Cơ học – Cân bằng của vật rắn* như sau:
 
-Các lệnh migration cần được chạy trong môi trường đã cài đặt dependencies và cấu hình `DATABASE_URL` phù hợp.
-
----
-
-## 7. Kết quả thực nghiệm Baseline – Tuần 2
-
-Dữ liệu tham chiếu từ thực nghiệm sinh 5 câu hỏi trắc nghiệm tiếng Việt trên tài liệu bài giảng *Cơ học – Cân bằng của vật rắn*.
-
-| Chỉ số | Giá trị |
+| Chỉ số | Giá trị ghi trong README cũ |
 |---|---:|
-| Extraction Time | 66.54 ms |
-| LLM Latency | 105049.54 ms |
-| Total Time | 105116.23 ms |
+| Extraction Time | 66,54 ms |
+| LLM Latency | 105.049,54 ms |
+| Total Time | 105.116,23 ms |
 
-Nhận xét:
+Các số liệu này được **giữ để bảo toàn lịch sử README**. Báo cáo Tuần 2 tại thời điểm nộp vẫn mô tả công đoạn đo Baseline là đang hoàn thiện; khi sử dụng số liệu trên cho báo cáo cuối kỳ nên đối chiếu lại log/minh chứng Baseline tương ứng. Không coi Baseline này là phép thử song song trực tiếp với dữ liệu Tuần 5 (khác tài liệu đầu vào).
 
-- Thời gian trích xuất văn bản chiếm tỷ trọng rất nhỏ.
-- Thời gian phản hồi LLM chiếm khoảng 99.94% tổng thời gian.
-- Độ trễ xử lý đồng bộ vượt quá 100 giây, gây nguy cơ timeout khi triển khai qua các API Gateway.
+## 8. Kết quả kiểm thử End-to-End — Tuần 5
 
-Kết quả này là cơ sở kỹ thuật để chuyển sang kiến trúc xử lý bất đồng bộ sử dụng RabbitMQ và Celery ở Tuần 4.
+**Tài liệu:** `Giải_đề_cuối_kì_Đại_số_2023_1.pdf` (PDF có lớp văn bản, 7 trang, 268.906 byte).\
+**Trích xuất:** 9.397 ký tự; phân bố theo trang `[1464, 1198, 1449, 1510, 1586, 1535, 655]`.\
+**Chunking:** `chunk_size=5000`, `overlap=300`, tổng cộng **2 chunks**.
 
----
+| Chỉ số | Mock | Gemini |
+|---|---:|---:|
+| Provider | `mock` | `gemini` |
+| Model | Giả lập | `gemini-3.5-flash` |
+| Trạng thái Job | `completed` | `completed` |
+| Số câu hỏi | 5 | 5 |
+| Số chunks | 2 | 2 |
+| Tổng LLM latency | 1.001 ms | 104.890 ms |
+| Tổng thời gian | 1.175,32 ms | 105.430,81 ms |
+| `error_message` cuối cùng | `null` | `null` |
 
-## 8. Định hướng phát triển tiếp theo
+**Mã kiểm thử (tham chiếu khi cần):**
 
-Các công việc tiếp theo tập trung vào:
+| Provider | Job ID | Quiz ID |
+|---|---|---|
+| Mock | `e23f9cef-c72b-4cbf-82df-fa8f9498c00f` | `a693d295-3b46-4ec5-9848-a297dd92bbba` |
+| Gemini | `59856f10-1cc1-4c72-a6ac-d6595085c7dc` | `8060c874-9543-4755-aba8-7afb238fa994` |
 
-1. Hoàn thiện và kiểm thử migration trên PostgreSQL thực tế.
-2. Kiểm thử tích hợp toàn bộ luồng Job Service → RabbitMQ → Celery Worker → PostgreSQL → Core Service.
-3. Kiểm thử các trường hợp lỗi LLM, mất kết nối RabbitMQ và lỗi Database.
-4. Kiểm thử tính đúng đắn của Retry, Idempotency và cơ chế ACK.
-5. Bổ sung giới hạn dung lượng file tải lên và cơ chế chống gửi yêu cầu trùng lặp đồng thời.
-6. Đo lường thời gian xử lý, throughput và khả năng chịu tải khi có nhiều Job đồng thời.
-7. So sánh hiệu năng giữa Baseline đồng bộ và kiến trúc Microservices bất đồng bộ.
+### Retry và cơ chế tin cậy đang dùng
 
----
+- Celery task: `worker.tasks.process_quiz_generation` với `max_retries=0` (không retry toàn bộ task bằng Celery).
+- Gemini SDK có `HttpRetryOptions`: `attempts=2` (tính cả lần thử đầu), `initial_delay=1.0`, `max_delay=4.0`, `exp_base=2.0`, `jitter=1.0`; retry các mã HTTP `[408, 429, 500, 502, 503, 504]` theo cấu hình SDK.
+- Trong Job Gemini đã ghi nhận **HTTP 504**, SDK thử lại, sau đó nhận HTTP 200 và Job hoàn thành.
+- Worker đang dùng `concurrency=20` (prefork), late ACK, reject worker lost, prefetch multiplier bằng 1 và logic rollback/giảm trùng lặp ở mức đã triển khai.
+- **Chưa có persistence tiến độ từng chunk để resume độc lập** khi Worker bị gián đoạn. Chưa có bằng chứng kiểm thử đầy đủ các kịch bản Worker chết, mất RabbitMQ hoặc lỗi DB trong Tuần 5.
 
-## 9. Tài liệu tham khảo
+### Xác minh dữ liệu sau khi các container khởi động lại
+
+- Job Service trả Job Gemini `status=completed`, `total_time_ms=105430.81`, `error_message=null` và đúng `quiz_id`.
+- Core Service tiếp tục trả đúng `quiz_id`, `job_id`, `question_count=5` và danh sách có thực tế **5 câu hỏi**.
+- Việc này xác nhận truy xuất lại dữ liệu đã lưu; **không chứng minh** tính năng resume khi một Job đang thực thi bị gián đoạn.
+- Số liệu E2E này là của các lần chạy riêng lẻ, **không phải benchmark throughput/concurrency**.
+
+## 9. Đánh giá nội dung Quiz Gemini so với PDF nguồn
+
+Đã đối chiếu JSON Quiz Gemini gồm 5 câu với PDF Đại số 2023.1 và lời giải trong cùng PDF:
+
+| Câu Gemini | Chủ đề | Đáp án trong JSON | Kết quả đối chiếu |
+|---|---|---|---|
+| 1 | Quy ước `Arg(z)` và `arg(z)` | A | Phù hợp quy ước trong PDF |
+| 2 | Điều kiện hệ phương trình có nghiệm | B: `m=-2` | Đúng với phép khử Gauss |
+| 3 | Hạng ma trận nhỏ nhất | C: `m=5` | Đúng với phép khử Gauss |
+| 4 | Trị riêng của `p(A)=(A+2I)^4` | A: `1, 16, 4096` | Đúng với định lý phổ |
+| 5 | Hai không gian sinh bằng nhau trong `P2[x]` | B: `m=5` | Đúng theo hệ vector dùng ở lời giải PDF |
+
+**Kiểm tra cấu trúc:** 5/5 câu có nội dung, bốn lựa chọn, `correct_answer` thuộc A–D và `explanation` không rỗng; không có cặp câu hỏi trùng nguyên văn trong bộ 5 câu. Tiếng Việt của JSON được xác nhận hiển thị đúng khi tải file và mở trong VS Code.
+
+**Hạn chế chất lượng:**
+
+1. Câu Gemini 2 và 3 dẫn chiếu “hệ phương trình/ma trận trong tài liệu” nhưng không chép đủ dữ kiện, nên không tự giải được nếu tách khỏi PDF.
+2. Explanation câu Gemini 5 cần lập luận chặt hơn về không gian sinh và tính độc lập tuyến tính.
+3. PDF nguồn có khác biệt: đề Câu 7 ở trang 1 ghi `-3x^3` cho một phần tử thuộc `P2[x]`, trong khi phần lời giải dùng `-3x^2`; câu Gemini 5 theo phần lời giải. Phần lời giải Câu 8 còn có một dòng ghi trị riêng `2` thay vì `6`, dù phép tính và kết luận đúng là `-1, 0, 6`.
+
+Kết luận **5/5 đáp án đúng trong bộ mẫu đã kiểm chứng**, không suy ra độ chính xác 100% trên các tài liệu hoặc Job khác.
+
+## 10. Giới hạn và công việc chưa thực hiện
+
+- **Chưa OCR:** PDF scan không có lớp văn bản chưa được hỗ trợ trong MVP.
+- **Chưa có kiểm thử tải đồng thời** 10/20/40 Job và so sánh 1/2/4 worker; đây không phải kết quả đã hoàn thành trong Tuần 5.
+- **Chưa chứng minh toàn diện lỗi hạ tầng**: dừng Worker giữa Job, mất RabbitMQ/DB và khôi phục từng chunk.
+- **Chất lượng câu hỏi** cần được cải tiến để tự chứa dữ kiện gốc, hạn chế trùng lặp ngữ nghĩa và tăng tính chặt chẽ của lời giải.
+- **Thời gian LLM** phụ thuộc nhà cung cấp, hạn mức và độ dài ngữ cảnh; một lần đo 105 giây không đủ để kết luận hiệu năng tổng quát.
+- **React, MinIO, Locust** thuộc thiết kế/lộ trình nhưng README này không khẳng định đã triển khai đầy đủ hay kiểm thử E2E trong Tuần 5.
+
+## 11. Định hướng sau Tuần 5
+
+Chỉ chuyển sang các bước tiếp theo khi Tuần 5 được xác nhận hoàn tất. Theo đề cương, các bước sau dự kiến tập trung vào kiểm thử tải Mock bằng Locust, phân tích khả năng chịu tải, đánh giá cấu hình Worker, bổ sung kịch bản lỗi và đo metric. **Các mục này là định hướng, chưa phải kết quả đã triển khai.**
+
+## 12. Tài liệu tham khảo
 
 - FastAPI: https://fastapi.tiangolo.com/
 - SQLAlchemy: https://www.sqlalchemy.org/
@@ -385,6 +283,5 @@ Các công việc tiếp theo tập trung vào:
 
 ---
 
-**Project 1 – Hệ thống sinh câu hỏi trắc nghiệm từ tài liệu theo kiến trúc Microservices**
-
-*Nguyễn Văn Sơn – IT1-03-K69 – Trường Đại học Bách khoa Hà Nội*
+*Project 1 — Nguyễn Văn Sơn — IT1-03-K69 — Đại học Bách khoa Hà Nội*\
+*Cập nhật tài liệu đến 13/11/2026; chỉ phản ánh các hạng mục có bằng chứng trong báo cáo, bàn giao và kết quả kiểm tra đã cung cấp.*

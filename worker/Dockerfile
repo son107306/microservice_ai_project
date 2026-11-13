@@ -9,6 +9,8 @@ COPY worker/tasks.py ./worker/
 # Copy các thư viện và module tái sử dụng
 COPY shared/ shared/
 COPY preprocessor.py .
+COPY chunking.py .
 COPY llm_adapter.py .
+
 
 CMD ["celery", "-A", "worker.tasks", "worker", "--loglevel=info"]

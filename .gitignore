@@ -4,3 +4,8 @@ __pycache__/
 .env
 
 test_outputs/
+
+# Local test results - Week 5
+/gemini_quiz.json
+/quiz_encoding_test.json
+/quiz_response.json
